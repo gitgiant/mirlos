@@ -284,7 +284,7 @@ def test_target_override_and_ranking(env):
     c, state, f, _ = env
     state.hist.poll_once()
     c.post("/dj/login", data={"pin": "123456"})
-    assert "Last played: Glass Harbor — Nightline" in c.get("/dj").text
+    assert "Last played: Glass Harbor — Nightline" in c.get("/dj/search").text
     c.get("/dj/search?q=anything")
     drain(state)
     rows = c.get(f"/dj/cands?ids={A},{B},{LONG}").text

@@ -15,7 +15,6 @@
   <figure>{{ svg | safe }}<figcaption>{{ label }}<br><code>{{ url }}</code></figcaption></figure>
 {% endfor %}
 </section>
-{% include "_target.html" %}
 <form method="get" action="/dj/search" class="search">
   <input name="q" placeholder="Search YouTube (remixes, edits…)" maxlength="200"><button>Search</button>
 </form>
