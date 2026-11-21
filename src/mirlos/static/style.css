@@ -1,9 +1,9 @@
 :root { --bg:#0d0d10; --fg:#eee; --mut:#8a8a95; --acc:#ffb347; --ok:#5fd38d; --bad:#ff6b6b; --card:#18181d; }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, sans-serif; }
-header { display:flex; align-items:baseline; gap:.5rem; padding:.8rem 1rem; border-bottom:1px solid #222; }
+header { display:flex; align-items:center; gap:.5rem; padding:.8rem 1rem; border-bottom:1px solid #222; }
 .brand { color:var(--acc); font-weight:800; font-size:1.3rem; text-decoration:none; letter-spacing:.02em; }
-.tag { color:var(--mut); font-size:.9rem; }
+.logo { width:2.5rem; height:2.5rem; display:block; }
 main { max-width:720px; margin:0 auto; padding:1rem; }
 h1 { margin:.2rem 0 1rem; } h2 { margin:1.5rem 0 .5rem; font-size:1.1rem; color:var(--mut); }
 input { width:100%; padding:.7rem; border-radius:.5rem; border:1px solid #333; background:#111; color:var(--fg); font-size:1rem; }

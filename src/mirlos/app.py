@@ -21,7 +21,8 @@ import ytfetch
 
 from .config import Config
 from . import analysis
-from .services import Analyzer, Downloader, Fetcher, Funnel, HistoryPoller, Library, Target, _norm, lan_ip
+from .services import (_APPROVE_RE, Analyzer, Downloader, Fetcher, Funnel, FunnelNeedsApproval, HistoryPoller,
+                       Library, Target, _norm, lan_ip)
 from .store import Store
 
 HERE = Path(__file__).parent
@@ -224,9 +225,11 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
         return RedirectResponse("/dj", 303)
 
     @app.get("/dj", response_class=HTMLResponse)
-    def dj(req: Request, err: str = ""):
+    def dj(req: Request, err: str = "", approve: str = ""):
         if not is_dj(req):
             return render(req, "dj_login.html")
+        # only ever link to Tailscale's own admin console
+        approve = approve if _APPROVE_RE.fullmatch(approve) else ""
         lan = f"http://{lan_ip()}:{cfg.port}/"
         fun_on = store.get("funnel") == "1"
         code = store.get("event_code")
@@ -237,7 +240,7 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
         qrs = [(label, url, segno.make(url, error="m").svg_inline(scale=6, dark="#000", light="#fff"))
                for label, url in links]
         return render(req, "dj.html", items=store.all(), guests=store.guests(), qrs=qrs,
-                      funnel=fun_on, code=code, hist=hist.status, xml=str(cfg.xml_path), err=err,
+                      funnel=fun_on, code=code, hist=hist.status, xml=str(cfg.xml_path), err=err, approve=approve,
                       target=target.get(), guest_bpm=store.guest_bpm, analysis_on=an.enabled)
 
     @app.post("/dj/login")
@@ -404,6 +407,8 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
                                                     for _ in range(4)))
                     funnel.enable()
                     store.set("funnel", "1")
+            except FunnelNeedsApproval as e:
+                return RedirectResponse("/dj?approve=" + quote(e.link, safe=""), 303)
             except Exception as e:
                 return RedirectResponse("/dj?err=" + quote(f"Funnel: {str(e)[:120]}"), 303)
         else:

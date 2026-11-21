@@ -317,3 +317,40 @@ def test_dj_add_analyzed_candidate_is_instant(env):
     c.post("/dj/reset")
     assert Path(r.path).exists()  # used file kept
     assert not any(state.an.cands_dir.iterdir())  # unused candidates purged
+
+
+def test_funnel_timeout_surfaces_approval_link(monkeypatch):
+    import subprocess
+
+    from mirlos import services
+
+    link = "https://login.tailscale.com/f/funnel?node=abc123"
+
+    def hang(*a, **k):
+        raise subprocess.TimeoutExpired(a[0], 20, output=f"\nFunnel is not enabled.\n\n   {link}\n".encode())
+
+    monkeypatch.setattr(services.subprocess, "run", hang)
+    f = services.Funnel(8080)
+    f.exe = "tailscale"
+    with pytest.raises(services.FunnelNeedsApproval) as e:
+        f.enable()
+    assert e.value.link == link
+
+
+def test_dj_page_shows_only_tailscale_approval_links(env):
+    from mirlos.services import FunnelNeedsApproval
+
+    c, state, _, _ = env
+    c.post("/dj/login", data={"pin": "123456"})
+    link = "https://login.tailscale.com/f/funnel?node=abc123"
+
+    def needs_approval():
+        raise FunnelNeedsApproval(link)
+
+    state.funnel.enable = needs_approval
+    r = c.post("/dj/funnel", follow_redirects=False)
+    assert r.status_code == 303 and "approve=" in r.headers["location"]
+    page = c.get(r.headers["location"]).text
+    assert f'href="{link}"' in page.replace("&amp;", "&")
+    assert state.store.get("funnel") != "1"
+    assert "evil.example" not in c.get("/dj?approve=https://evil.example/x").text

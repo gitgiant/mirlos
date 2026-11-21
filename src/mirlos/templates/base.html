@@ -3,12 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Mirlos · song requests{% endblock %}</title>
+<title>{% block title %}Mirlos{% endblock %}</title>
+<link rel="icon" href="/static/mirlos.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-<header><a href="/" class="brand">Mirlos</a><span class="tag">song requests</span></header>
+<header><a href="/" class="brand">Mirlos</a><img src="/static/mirlos.svg" class="logo" alt="" width="40" height="40"></header>
 <main>{% block body %}{% endblock %}</main>
 </body>
 </html>

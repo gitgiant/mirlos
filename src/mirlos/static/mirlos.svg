@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Mirlos">
+  <!-- tail -->
+  <path d="M14 40 L3 49 Q2 52 6 51 L18 46 Z" fill="#262630"/>
+  <!-- body + head -->
+  <ellipse cx="29" cy="39" rx="18" ry="15" fill="#33333f"/>
+  <circle cx="38" cy="24" r="13" fill="#33333f"/>
+  <!-- soft belly -->
+  <ellipse cx="33" cy="44" rx="10" ry="8" fill="#3d3d4b"/>
+  <!-- wing -->
+  <path d="M15 34 Q24 26 34 34 Q30 47 17 44 Q12 40 15 34 Z" fill="#24242d"/>
+  <path d="M19 38 Q25 35 30 38" fill="none" stroke="#33333f" stroke-width="1.4" stroke-linecap="round"/>
+  <!-- beak -->
+  <path d="M49 22 L60 25 L49 28.5 Q47.5 25 49 22 Z" fill="#ffb347"/>
+  <path d="M50 25.2 L58 25" stroke="#d98a1f" stroke-width="1" stroke-linecap="round"/>
+  <!-- eye: orange ring, dark eye, shine -->
+  <circle cx="42" cy="21" r="4.4" fill="#ffb347"/>
+  <circle cx="42.4" cy="21" r="2.9" fill="#0d0d10"/>
+  <circle cx="43.4" cy="19.9" r="1.05" fill="#fff"/>
+  <!-- blush -->
+  <ellipse cx="44" cy="29" rx="3" ry="1.8" fill="#ff8fa3" opacity=".55"/>
+  <!-- feet -->
+  <path d="M27 53 v5 M24.5 58 h5 M34 53 v5 M31.5 58 h5" stroke="#ffb347" stroke-width="2" stroke-linecap="round"/>
+  <!-- little note -->
+  <path d="M55 6 v9" stroke="#ffb347" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M55 6 q4 1 5 4" fill="none" stroke="#ffb347" stroke-width="1.8" stroke-linecap="round"/>
+  <ellipse cx="53" cy="15.5" rx="2.6" ry="2" fill="#ffb347" transform="rotate(-20 53 15.5)"/>
+</svg>

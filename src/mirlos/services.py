@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import queue
+import re
 import shutil
 import socket
 import subprocess
@@ -284,6 +285,17 @@ def lan_ip() -> str:
         s.close()
 
 
+_APPROVE_RE = re.compile(r"https://login\.tailscale\.com/[A-Za-z0-9/?=&._-]+")
+
+
+class FunnelNeedsApproval(RuntimeError):
+    """Funnel/HTTPS isn't enabled on the tailnet; the CLI waits on an admin-console link."""
+
+    def __init__(self, link: str):
+        super().__init__(f"Funnel isn't enabled on your tailnet yet. Approve it at {link}")
+        self.link = link
+
+
 class Funnel:
     """Thin wrapper around the tailscale CLI."""
 
@@ -291,12 +303,23 @@ class Funnel:
         self.port = port
         self.exe = shutil.which("tailscale")
 
-    def _run(self, *args: str) -> str:
+    def _run(self, *args: str, timeout: float = 20) -> str:
         if not self.exe:
             raise RuntimeError("tailscale CLI not found on PATH")
-        p = subprocess.run([self.exe, *args], capture_output=True, text=True, timeout=20)
+        try:
+            p = subprocess.run([self.exe, *args], capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired as e:
+            # `tailscale funnel` prints an approval link and blocks until the admin approves it.
+            out = "".join(x.decode(errors="replace") if isinstance(x, bytes) else (x or "")
+                          for x in (e.stdout, e.stderr))
+            if m := _APPROVE_RE.search(out):
+                raise FunnelNeedsApproval(m.group(0)) from None
+            raise RuntimeError(f"tailscale {' '.join(args)} timed out after {timeout:g} s") from None
         if p.returncode:
-            raise RuntimeError((p.stderr or p.stdout).strip()[:300])
+            out = (p.stderr or p.stdout).strip()
+            if m := _APPROVE_RE.search(out):
+                raise FunnelNeedsApproval(m.group(0))
+            raise RuntimeError(out[:300])
         return p.stdout
 
     def enable(self) -> None:
