@@ -1,0 +1,15 @@
+{% if not items %}<p class="hint">Nothing requested yet — be first.</p>{% endif %}
+<ol class="queue">
+{% for r in items %}
+  <li class="{{ r.status }}">
+    <div class="meta"><b>{{ r.title }}</b><small>{{ r.guest_name }} · {{ r.duration_str }} ·
+      {% if r.status == 'played' %}played ✓{% elif r.status == 'ready' %}ready{% else %}fetching…{% endif %}</small></div>
+    {% if r.status == 'played' %}
+      <span class="votes">{{ r.votes }}</span>
+    {% else %}
+      <button class="vote {{ 'on' if r.id in mine }}" hx-post="/vote/{{ r.id }}" hx-target="#queue"
+              {% if r.id in mine %}disabled{% endif %}>+{{ r.votes }}</button>
+    {% endif %}
+  </li>
+{% endfor %}
+</ol>

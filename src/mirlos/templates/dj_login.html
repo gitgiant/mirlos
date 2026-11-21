@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Mirlos · DJ{% endblock %}
+{% block body %}
+<form method="post" action="/dj/login" class="card">
+  <h1>DJ</h1>
+  {% if error %}<p class="msg bad">{{ error }}</p>{% endif %}
+  <label>PIN<input name="pin" type="password" inputmode="numeric" autocomplete="current-password" required autofocus></label>
+  <button>Enter</button>
+</form>
+{% endblock %}

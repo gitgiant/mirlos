@@ -1,0 +1,12 @@
+{% if not results %}<p class="msg bad">No results.</p>{% endif %}
+<ul class="results">
+{% for t in results %}
+  {% set too_long = t.duration and t.duration > max_dur %}
+  <li>
+    <img src="{{ t.thumbnail }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+    <div class="meta"><b>{{ t.title }}</b><small>{{ t.uploader }}{% if t.duration %} · {{ t.duration // 60 }}:{{ '%02d' % (t.duration % 60) }}{% endif %}</small></div>
+    <button hx-post="/request" hx-vals='{"video_id": "{{ t.video_id }}"}' hx-target="#results"
+            {% if too_long %}disabled title="Too long"{% endif %}>{{ 'Too long' if too_long else 'Request' }}</button>
+  </li>
+{% endfor %}
+</ul>

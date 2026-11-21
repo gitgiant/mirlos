@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block body %}
+<form method="post" action="/join" class="card">
+  <h1>Request a song</h1>
+  {% if error %}<p class="msg bad">{{ error }}</p>{% endif %}
+  {% if need_code %}
+  <label>Event code<input name="code" autocomplete="off" autocapitalize="characters" maxlength="8" required></label>
+  {% endif %}
+  <label>Your name<input name="name" maxlength="32" autocomplete="nickname" required autofocus></label>
+  <button>Join</button>
+</form>
+{% endblock %}

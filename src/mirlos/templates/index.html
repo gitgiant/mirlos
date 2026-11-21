@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block body %}
+<p class="hi">Hi {{ guest.name }} 👋</p>
+{% if paused %}<p class="msg bad">Requests are paused right now.</p>{% endif %}
+<form hx-post="/search" hx-target="#results" hx-indicator="#spin" class="search"
+      hx-on::after-request="if(event.detail.successful && this.q.value.includes('://')) this.reset()">
+  <input name="q" placeholder="Search a song or paste a YouTube link" maxlength="200" required autocomplete="off">
+  <button>Go</button>
+</form>
+<p class="hint">Max {{ max_min }} minutes. Already on the list? Tap +1 instead.</p>
+<div id="spin" class="htmx-indicator">Searching…</div>
+<div id="results"></div>
+<h2>Queue</h2>
+<div id="queue" hx-get="/queue" hx-trigger="load, every 3s, queue-changed from:body"></div>
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Mirlos · DJ{% endblock %}
+{% block body %}
+{% if err %}<p class="msg bad">{{ err }}</p>{% endif %}
+<section class="controls">
+  <form method="post" action="/dj/pause"><button class="{{ 'bad' if paused }}">{{ 'Resume requests' if paused else 'Pause requests' }}</button></form>
+  <form method="post" action="/dj/funnel"><button>{{ 'Funnel: ON (turn off)' if funnel else 'Funnel: off (turn on)' }}</button></form>
+  <form method="post" action="/dj/reset" onsubmit="return confirm('Clear all requests for a new night?')"><button>New night</button></form>
+  <form method="post" action="/dj/logout"><button>Log out</button></form>
+</section>
+<p class="hint">History poller: {{ hist }} · XML: <code>{{ xml }}</code>{% if funnel %} · Event code <b>{{ code }}</b>{% endif %}</p>
+<section class="qrs">
+{% for label, url, svg in qrs %}
+  <figure>{{ svg | safe }}<figcaption>{{ label }}<br><code>{{ url }}</code></figcaption></figure>
+{% endfor %}
+</section>
+<h2>Requests</h2>
+<table>
+  <tr><th>#</th><th>Track</th><th>By</th><th>Votes</th><th>Status</th><th></th></tr>
+  {% for r in items %}
+  <tr class="{{ r.status }}">
+    <td>{{ r.id }}</td>
+    <td><a href="https://youtu.be/{{ r.video_id }}" target="_blank" rel="noopener noreferrer">{{ r.title }}</a>
+      {% if r.error %}<br><small class="bad">{{ r.error }}</small>{% endif %}</td>
+    <td>{{ r.guest_name }}</td><td>{{ r.votes }}</td><td>{{ r.status }}</td>
+    <td class="acts">
+      {% if r.status in ('queued','downloading','ready','failed') %}
+      <form method="post" action="/dj/delete"><input type="hidden" name="rid" value="{{ r.id }}"><button>Delete</button></form>
+      {% endif %}
+      {% if r.status == 'ready' %}
+      <form method="post" action="/dj/played"><input type="hidden" name="rid" value="{{ r.id }}"><button>Played</button></form>
+      {% endif %}
+      {% if r.status == 'failed' %}
+      <form method="post" action="/dj/retry"><input type="hidden" name="rid" value="{{ r.id }}"><button>Retry</button></form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+<h2>Guests</h2>
+<table>
+  <tr><th>Name</th><th>Requests</th><th></th></tr>
+  {% for g in guests %}
+  <tr class="{{ 'deleted' if g.banned }}"><td>{{ g.name }}</td><td>{{ g.n }}</td>
+    <td><form method="post" action="/dj/{{ 'unban' if g.banned else 'ban' }}"><input type="hidden" name="token" value="{{ g.token }}">
+      <button>{{ 'Unban' if g.banned else 'Ban' }}</button></form></td></tr>
+  {% endfor %}
+</table>
+{% endblock %}
