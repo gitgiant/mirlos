@@ -11,9 +11,10 @@ your rekordbox play history. Design: [docs/SPEC.md](docs/SPEC.md).
 ```powershell
 winget install Gyan.FFmpeg DenoLand.Deno astral-sh.uv   # ffmpeg: tags/artwork; deno: yt-dlp's YouTube JS runtime
 git clone https://github.com/gitgiant/ytfetch
+git clone https://github.com/gitgiant/sampleminer      # BPM/key analysis
 git clone https://github.com/gitgiant/mirlos
 cd mirlos
-uv sync --extra rekordbox
+uv sync --extra rekordbox --extra analysis
 $env:MIRLOS_DJ_PIN = "your-pin"     # otherwise one is generated and printed
 uv run mirlos
 ```
@@ -41,9 +42,26 @@ everyone needs while Funnel is on.
 PIN-protected: QR codes, pause/resume, Funnel toggle, delete / mark played / retry requests,
 ban guests (drops their unplayed requests), **New night** (clears requests; files are kept).
 
+### Remix finder (BPM-matched)
+
+The **target** is the BPM/key of the last track in your rekordbox history (refreshed every
+30 s), or a manual override that sticks until you hit *Use last played*.
+
 **Remixes** on any request searches YouTube for `<title> remix` (junk like *(Official Video)* stripped),
 with one-tap variants: edit, bootleg, VIP, extended mix, instrumental. A free search box sits above
-the table. DJ adds skip pause and the duration cap, and can bring back tracks you deleted earlier.
+the table. The top 8 results are downloaded in full and analyzed (BPM + Camelot key) in the
+background, then ranked against the target: **on target / ±x%** (≤6% fits, ≤10% close),
+**half-time ×2 / double-time ×½**, and key **same / compatible / relative / +2 steps / clash**.
+**Add** on an analyzed candidate is instant (the file is already downloaded). DJ adds skip pause
+and the duration cap, and can bring back tracks you deleted earlier. *New night* deletes unused
+candidates.
+
+### Guest BPM hints
+
+With **Guest BPM hints** on (default), guests see "The DJ is playing around ~124 BPM", and each
+search result gets a rough BPM from a 45 s clip plus a **Fits now / Close / Slower / Faster**
+badge. Clips are deleted after analysis; at most 15 guest clips queue at once. Half/double-time
+misreads are possible on clips.
 
 ## Config (env vars)
 

@@ -23,6 +23,13 @@ CREATE TABLE IF NOT EXISTS votes (
   request_id INTEGER NOT NULL REFERENCES requests(id) ON DELETE CASCADE,
   guest TEXT NOT NULL, PRIMARY KEY (request_id, guest)
 );
+CREATE TABLE IF NOT EXISTS candidates (
+  video_id TEXT NOT NULL, kind TEXT NOT NULL,  -- clip (guest hint) | full (DJ finder)
+  title TEXT NOT NULL, uploader TEXT NOT NULL DEFAULT '', duration INTEGER, thumbnail TEXT,
+  status TEXT NOT NULL DEFAULT 'queued',  -- queued|downloading|analyzing|done|failed
+  path TEXT, bpm REAL, key TEXT, error TEXT, created REAL NOT NULL,
+  PRIMARY KEY (video_id, kind)
+);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
@@ -79,6 +86,10 @@ class Store:
     @property
     def paused(self) -> bool:
         return self.get("paused") == "1"
+
+    @property
+    def guest_bpm(self) -> bool:
+        return self.get("guest_bpm", "1") == "1"
 
     # guests
     def guest(self, token: str) -> sqlite3.Row | None:
@@ -168,6 +179,48 @@ class Store:
     def ready(self, order: str = "arrival") -> list[Request]:
         o = "votes DESC, r.created" if order == "votes" else "r.created"
         return self._rows("WHERE r.status='ready' AND r.path IS NOT NULL", order=o)
+
+    # analysis candidates
+    def candidate(self, video_id: str, kind: str) -> sqlite3.Row | None:
+        r = self._q("SELECT * FROM candidates WHERE video_id=? AND kind=?", (video_id, kind))
+        return r[0] if r else None
+
+    def analysis(self, video_id: str) -> sqlite3.Row | None:
+        """Best known analysis for a video: full beats clip."""
+        r = self._q("SELECT * FROM candidates WHERE video_id=? AND status='done' "
+                    "ORDER BY kind='full' DESC LIMIT 1", (video_id,))
+        return r[0] if r else None
+
+    def add_candidate(self, *, video_id: str, kind: str, title: str, uploader: str,
+                      duration: int | None, thumbnail: str | None) -> bool:
+        """Insert (or requeue a failed one). True if the caller should enqueue it."""
+        with self._lock:
+            ex = self.candidate(video_id, kind)
+            if ex and ex["status"] != "failed":
+                return False
+            self._q("INSERT INTO candidates(video_id,kind,title,uploader,duration,thumbnail,created) "
+                    "VALUES(?,?,?,?,?,?,?) ON CONFLICT(video_id,kind) DO UPDATE SET status='queued', error=NULL",
+                    (video_id, kind, title, uploader, duration, thumbnail, time.time()))
+            return True
+
+    def update_candidate(self, video_id: str, kind: str, **cols) -> None:
+        keys = ", ".join(f"{k}=?" for k in cols)
+        self._q(f"UPDATE candidates SET {keys} WHERE video_id=? AND kind=?", (*cols.values(), video_id, kind))
+
+    def candidates(self, video_ids: list[str], kind: str) -> list[sqlite3.Row]:
+        if not video_ids:
+            return []
+        ph = ",".join("?" * len(video_ids))
+        rows = {r["video_id"]: r for r in self._q(
+            f"SELECT * FROM candidates WHERE kind=? AND video_id IN ({ph})", (kind, *video_ids))}
+        return [rows[v] for v in video_ids if v in rows]
+
+    def drop_candidates(self) -> list[str]:
+        """Forget all candidates; return their file paths (caller deletes files not in use)."""
+        with self._lock:
+            paths = [r["path"] for r in self._q("SELECT path FROM candidates WHERE path IS NOT NULL")]
+            self._db.execute("DELETE FROM candidates")
+            return paths
 
     def reset_night(self) -> None:
         """Clear all requests and votes (downloaded files are kept)."""

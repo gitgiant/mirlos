@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import re
 import secrets
+import shutil
 import time
 from contextlib import asynccontextmanager
 from collections import OrderedDict
@@ -19,7 +20,8 @@ from starlette.middleware.sessions import SessionMiddleware
 import ytfetch
 
 from .config import Config
-from .services import Downloader, Fetcher, Funnel, HistoryPoller, Library, lan_ip
+from . import analysis
+from .services import Analyzer, Downloader, Fetcher, Funnel, HistoryPoller, Library, Target, _norm, lan_ip
 from .store import Store
 
 HERE = Path(__file__).parent
@@ -58,7 +60,7 @@ class TrackCache(OrderedDict):
 
 
 def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
-               start_services: bool = True, history_source=None) -> FastAPI:
+               start_services: bool = True, history_source=None, analyze_fn=None) -> FastAPI:
     cfg = cfg or Config()
     fetcher = fetcher or ytfetch
     store = Store(cfg.db_path)
@@ -66,6 +68,8 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
     dl = Downloader(cfg, store, lib, fetcher)
     hist = HistoryPoller(cfg, store, lib, **({"source": history_source} if history_source else {}))
     funnel = Funnel(cfg.port)
+    an = Analyzer(cfg, store, fetcher, run=analyze_fn)
+    target = Target(store, hist)
     cache = TrackCache()
     pin_fails = {"n": 0, "until": 0.0}
 
@@ -75,6 +79,7 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
         if start_services:
             dl.start()
             hist.start()
+            an.start()
         yield
 
     app = FastAPI(title="Mirlos", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
@@ -82,7 +87,7 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
                        same_site="lax", max_age=12 * 3600)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     tpl = Jinja2Templates(directory=HERE / "templates")
-    app.state.__dict__.update(cfg=cfg, store=store, lib=lib, dl=dl, hist=hist, funnel=funnel)
+    app.state.__dict__.update(cfg=cfg, store=store, lib=lib, dl=dl, hist=hist, funnel=funnel, an=an, target=target)
 
     def render(req: Request, name: str, status: int = 200, headers: dict | None = None, **ctx) -> HTMLResponse:
         ctx.setdefault("paused", store.paused)
@@ -113,7 +118,8 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
         if g is None:
             have_code = not need or _eq(req.cookies.get(CODE_COOKIE, ""), need)
             return render(req, "join.html", need_code=not have_code)
-        return render(req, "index.html", guest=g, max_min=cfg.max_duration // 60)
+        return render(req, "index.html", guest=g, max_min=cfg.max_duration // 60,
+                      hints=store.guest_bpm and an.enabled)
 
     @app.post("/join")
     def join(req: Request, name: str = Form(...), code: str = Form("")):
@@ -174,9 +180,12 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
             results = fetcher.search(q, 5)
         except Exception:
             return message(req, "Search failed — try again.", ok=False)
+        hints = store.guest_bpm and an.enabled
         for t in results:
             cache.put(t)
-        return render(req, "_results.html", results=results, max_dur=cfg.max_duration)
+            if hints and (t.duration or 0) <= cfg.max_duration:
+                an.request(t, "clip")
+        return render(req, "_results.html", results=results, max_dur=cfg.max_duration, hints=hints)
 
     @app.post("/request", response_class=HTMLResponse)
     def request_track(req: Request, video_id: str = Form(...)):
@@ -228,7 +237,8 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
         qrs = [(label, url, segno.make(url, error="m").svg_inline(scale=6, dark="#000", light="#fff"))
                for label, url in links]
         return render(req, "dj.html", items=store.all(), guests=store.guests(), qrs=qrs,
-                      funnel=fun_on, code=code, hist=hist.status, xml=str(cfg.xml_path), err=err)
+                      funnel=fun_on, code=code, hist=hist.status, xml=str(cfg.xml_path), err=err,
+                      target=target.get(), guest_bpm=store.guest_bpm, analysis_on=an.enabled)
 
     @app.post("/dj/login")
     def dj_login(req: Request, pin: str = Form(...)):
@@ -244,26 +254,60 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
             pin_fails.update(n=0, until=now + 60)
         return render(req, "dj_login.html", error="Wrong PIN", status=403)
 
+    STYLES = ["house", "tech house", "techno", "drum & bass", "amapiano", "hip hop", "baile funk",
+              "jersey club", "uk garage", "edit", "bootleg", "VIP", "extended"]
+
     @app.get("/dj/search", response_class=HTMLResponse)
-    def dj_search(req: Request, q: str = "", rid: int = 0):
+    def dj_search(req: Request, q: str = "", rid: int = 0, base: str = "", style: str = ""):
         if not is_dj(req):
             return RedirectResponse("/dj", 303)
-        if rid and (r := store.get_request(rid)):
-            q = remix_query(r.title)
-        q = q.strip()[:200]
+        src = store.get_request(rid) if rid else None
+        if src:
+            base = base or remix_query(src.title)[: -len(" remix")]
+        if base and not q:
+            q = f"{base} {style} remix" if style and style not in ("edit", "bootleg", "VIP", "extended") \
+                else f"{base} {style or 'remix'}"
+        q = re.sub(r"\s+", " ", q).strip()[:200]
         results, err = [], ""
         if q:
             try:
-                results = fetcher.search(q, 10)
+                results = fetcher.search(q, 8)
             except Exception as e:
                 err = f"Search failed: {str(e)[:120]}"
             for t in results:
                 cache.put(t)
+                an.request(t, "full")
+        ids = ",".join(t.video_id for t in results)
+        return render(req, "dj_search.html", q=q, base=base, style=style, rid=rid, src=src, ids=ids,
+                      styles=STYLES, err=err, target=target.get(), analysis_on=an.enabled)
+
+    def ranked(ids: list[str]):
+        tgt = target.get() or {}
         have = {r.video_id: r.status for r in store.all()}
-        return render(req, "dj_search.html", q=q, results=results, have=have, err=err)
+        rows = []
+        for i, c in enumerate(store.candidates(ids, "full")):
+            f = analysis.fit(c["bpm"], tgt.get("bpm"))
+            krank, klabel = analysis.key_relation(c["key"], tgt.get("key"))
+            order = {"fits": 0, "close": 1, "slower": 2, "faster": 2}.get(f.cls, 3)
+            pending = c["status"] not in ("done", "failed")
+            rows.append({"c": c, "fit": f, "klabel": klabel, "krank": krank, "pending": pending,
+                         "have": have.get(c["video_id"]),
+                         "sort": (pending, c["status"] == "failed", order, abs(f.pct), krank, i)})
+        rows.sort(key=lambda r: r["sort"])
+        return rows
+
+    @app.get("/dj/cands", response_class=HTMLResponse)
+    def dj_cands(req: Request, ids: str = "", q: str = ""):
+        if not is_dj(req):
+            return HTMLResponse("", status_code=401)
+        vids = [v for v in ids.split(",") if ytfetch._ID_RE.match(v)][:20]
+        rows = ranked(vids)
+        done = sum(not r["pending"] for r in rows)
+        return render(req, "_cands.html", rows=rows, done=done, total=len(rows), ids=ids, q=q,
+                      polling=any(r["pending"] for r in rows), target=target.get())
 
     @app.post("/dj/add")
-    def dj_add(req: Request, video_id: str = Form(...), q: str = Form("")):
+    def dj_add(req: Request, video_id: str = Form(...), q: str = Form(""), back_url: str = Form("")):
         if not is_dj(req):
             return RedirectResponse("/dj", 303)
         try:
@@ -278,8 +322,50 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
             store.set_status(rid, "queued")
             outcome = "added"
         if outcome in ("added", "retry"):
-            dl.enqueue(rid)
-        return RedirectResponse("/dj/search?q=" + quote(q), 303)
+            c = store.candidate(video_id, "full")
+            if c and c["status"] == "done" and c["path"] and Path(c["path"]).is_file():
+                dst = cfg.requests_dir / Path(c["path"]).name
+                if not dst.exists():
+                    shutil.move(c["path"], dst)
+                store.update_candidate(video_id, "full", path=str(dst))
+                store.set_status(rid, "ready", path=str(dst))
+                lib.refresh()
+            else:
+                dl.enqueue(rid)
+        nxt = back_url if back_url.startswith("/dj/search?") else "/dj/search?q=" + quote(q)
+        return RedirectResponse(nxt, 303)
+
+    @app.post("/dj/target")
+    def dj_target(req: Request, bpm: str = Form(""), key: str = Form(""), back_url: str = Form("/dj")):
+        if not is_dj(req):
+            return RedirectResponse("/dj", 303)
+        nxt = back_url if back_url.startswith("/dj") else "/dj"
+        if not bpm.strip():
+            target.clear()
+        else:
+            try:
+                target.set(bpm, key)
+            except ValueError as e:
+                return RedirectResponse("/dj?err=" + quote(str(e)), 303)
+        return RedirectResponse(nxt, 303)
+
+    # ---------------------------------------------------------------- guest BPM hints
+    @app.get("/now", response_class=HTMLResponse)
+    def now_card(req: Request):
+        if current_guest(req) is None or not store.guest_bpm:
+            return HTMLResponse("")
+        return render(req, "_now.html", target=target.get())
+
+    @app.get("/bpm/{video_id}", response_class=HTMLResponse)
+    def bpm_badge(req: Request, video_id: str):
+        if current_guest(req) is None or not store.guest_bpm or not ytfetch._ID_RE.match(video_id):
+            return HTMLResponse("")
+        a = store.analysis(video_id)
+        c = None if a else (store.candidate(video_id, "clip") or store.candidate(video_id, "full"))
+        pending = a is None and c is not None and c["status"] not in ("failed", "done")
+        tgt = target.get() or {}
+        f = analysis.fit(a["bpm"] if a else None, tgt.get("bpm"))
+        return render(req, "_bpm.html", vid=video_id, a=a, pending=pending, fit=f)
 
     @app.post("/dj/{action}")
     def dj_action(req: Request, action: str, rid: int = Form(0), token: str = Form("")):
@@ -302,8 +388,12 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
             store.ban(token, action == "ban")
             lib.refresh()
         elif action == "reset":
+            keep = {_norm(r.path) for r in store.all() if r.path}
             store.reset_night()
+            an.purge(keep)
             lib.refresh()
+        elif action == "guestbpm":
+            store.set("guest_bpm", "0" if store.guest_bpm else "1")
         elif action == "funnel":
             try:
                 if store.get("funnel") == "1":

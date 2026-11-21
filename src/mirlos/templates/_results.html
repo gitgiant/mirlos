@@ -4,7 +4,8 @@
   {% set too_long = t.duration and t.duration > max_dur %}
   <li>
     <img src="{{ t.thumbnail }}" alt="" loading="lazy" referrerpolicy="no-referrer">
-    <div class="meta"><b>{{ t.title }}</b><small>{{ t.uploader }}{% if t.duration %} · {{ t.duration // 60 }}:{{ '%02d' % (t.duration % 60) }}{% endif %}</small></div>
+    <div class="meta"><b>{{ t.title }}</b><small>{{ t.uploader }}{% if t.duration %} · {{ t.duration // 60 }}:{{ '%02d' % (t.duration % 60) }}{% endif %}
+      {% if hints and not too_long %}<span hx-get="/bpm/{{ t.video_id }}" hx-trigger="load delay:1500ms" hx-swap="outerHTML"><span class="badge wait">BPM…</span></span>{% endif %}</small></div>
     <button hx-post="/request" hx-vals='{"video_id": "{{ t.video_id }}"}' hx-target="#results"
             {% if too_long %}disabled title="Too long"{% endif %}>{{ 'Too long' if too_long else 'Request' }}</button>
   </li>

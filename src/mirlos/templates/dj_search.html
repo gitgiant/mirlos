@@ -1,35 +1,26 @@
 {% extends "base.html" %}
-{% block title %}Mirlos · DJ search{% endblock %}
+{% block title %}Mirlos · remix finder{% endblock %}
 {% block body %}
 <p><a href="/dj">← DJ</a></p>
+{% include "_target.html" %}
+{% if src %}
+<p class="hi">Find a version of <b>{{ base }}</b> <small>· requested by {{ src.guest_name }}</small></p>
+{% endif %}
 <form method="get" action="/dj/search" class="search">
   <input name="q" value="{{ q }}" placeholder="Search remixes, edits, bootlegs…" maxlength="200" autofocus>
   <button>Search</button>
 </form>
-{% if q %}
-<p class="hint">Try:
-  {% set base = q[:-6] if q.endswith(' remix') else q %}
-  {% for suffix in ['remix', 'edit', 'bootleg', 'VIP', 'extended mix', 'instrumental'] %}
-  <a href="/dj/search?q={{ (base ~ ' ' ~ suffix) | urlencode }}">{{ suffix }}</a>{{ ' · ' if not loop.last }}
+{% if base %}
+<div class="chips">
+  {% for s in styles %}
+  <a class="chip {{ 'on' if s == style }}" href="/dj/search?rid={{ rid }}&base={{ base | urlencode }}&style={{ s | urlencode }}">{{ s }}</a>
   {% endfor %}
-</p>
+</div>
 {% endif %}
 {% if err %}<p class="msg bad">{{ err }}</p>{% endif %}
-{% if q and not results and not err %}<p class="msg bad">No results.</p>{% endif %}
-<ul class="results">
-{% for t in results %}
-  <li>
-    <img src="{{ t.thumbnail }}" alt="" loading="lazy" referrerpolicy="no-referrer">
-    <div class="meta"><a href="https://youtu.be/{{ t.video_id }}" target="_blank" rel="noopener noreferrer"><b>{{ t.title }}</b></a>
-      <small>{{ t.uploader }}{% if t.duration %} · {{ t.duration // 60 }}:{{ '%02d' % (t.duration % 60) }}{% endif %}</small></div>
-    {% set st = have.get(t.video_id) %}
-    {% if st and st != 'deleted' %}
-      <span class="votes">{{ st }}</span>
-    {% else %}
-      <form method="post" action="/dj/add"><input type="hidden" name="video_id" value="{{ t.video_id }}">
-        <input type="hidden" name="q" value="{{ q }}"><button>Add</button></form>
-    {% endif %}
-  </li>
-{% endfor %}
-</ul>
+{% if not analysis_on %}<p class="msg bad">BPM/key analysis isn't installed — <code>uv sync --extra analysis</code>. Results are unranked.</p>{% endif %}
+{% if q and not ids and not err %}<p class="msg bad">No results.</p>{% endif %}
+{% if ids %}
+<div id="cands" hx-get="/dj/cands?ids={{ ids }}&q={{ q | urlencode }}" hx-trigger="load" hx-swap="innerHTML"></div>
+{% endif %}
 {% endblock %}

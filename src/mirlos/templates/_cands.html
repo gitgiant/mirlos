@@ -1,0 +1,29 @@
+<div class="progress">
+  {% if polling %}<span>Downloading + analyzing {{ total }} candidates</span>
+  <div class="bar"><div style="width: {{ (100 * done / total) | int if total else 0 }}%"></div></div><span>{{ done }} / {{ total }}</span>
+  {% else %}<span>{{ total }} analyzed</span>{% endif %}
+  <span class="grow"></span><span>ranked by BPM fit, then key{% if not target %} (set a target){% endif %}</span>
+</div>
+<ul class="results cands" {% if polling %}hx-get="/dj/cands?ids={{ ids }}&q={{ q | urlencode }}" hx-trigger="every 2s" hx-target="#cands"{% endif %}>
+{% for r in rows %}{% set c = r.c %}
+  <li>
+    <img src="{{ c.thumbnail }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+    <div class="meta"><a href="https://youtu.be/{{ c.video_id }}" target="_blank" rel="noopener noreferrer"><b>{{ c.title }}</b></a>
+      <small>{{ c.uploader }}{% if c.duration %} · {{ c.duration // 60 }}:{{ '%02d' % (c.duration % 60) }}{% endif %}</small></div>
+    <div class="num">
+      {% if c.status == 'done' %}<b>{{ '%.1f' % c.bpm }}</b>{% if r.fit.label %}<span class="badge {{ r.fit.cls }}">{{ r.fit.label }}</span>{% endif %}
+      {% elif c.status == 'failed' %}<span class="badge faster" title="{{ c.error }}">failed</span>
+      {% else %}<span class="badge wait">{{ c.status }}…</span>{% endif %}
+    </div>
+    <div class="num key">
+      {% if c.key %}<b>{{ c.key }}</b><small class="k{{ r.krank }}">{{ r.klabel }}</small>{% endif %}
+    </div>
+    {% if r.have and r.have != 'deleted' %}
+      <span class="votes">{{ r.have }}</span>
+    {% else %}
+      <form method="post" action="/dj/add"><input type="hidden" name="video_id" value="{{ c.video_id }}">
+        <input type="hidden" name="q" value="{{ q }}"><button {% if r.pending %}title="Adds now; it will download normally"{% endif %}>Add</button></form>
+    {% endif %}
+  </li>
+{% endfor %}
+</ul>

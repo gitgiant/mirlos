@@ -10,10 +10,12 @@ import shutil
 import socket
 import subprocess
 import threading
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from . import rbxml
+from . import analysis, rbxml
 from .config import Config
 from .store import Store
 
@@ -24,6 +26,7 @@ class Fetcher(Protocol):
     def search(self, query: str, n: int = 5) -> list: ...
     def resolve(self, video_id: str): ...
     def download(self, video_id: str, dest: Path) -> Path: ...
+    def download_clip(self, video_id: str, dest: Path, duration: int | None = None) -> Path: ...
 
 
 class Library:
@@ -80,37 +83,59 @@ def _norm(p: str) -> str:
     return os.path.normcase(os.path.normpath(p.replace("\\", "/")))
 
 
-def history_paths() -> set[str]:
-    """Normalized file paths of every track in rekordbox's play history (read-only)."""
+@dataclass
+class History:
+    paths: set[str]  # normalized file paths of every track in rekordbox's play history
+    last: dict | None  # most recent: title, artist, bpm, key
+
+
+def read_history() -> History:
+    """Read rekordbox's play history (read-only)."""
     try:
         from pyrekordbox import MasterDatabase as DB  # pyrekordbox >= 0.5
     except ImportError:
         from pyrekordbox import Rekordbox6Database as DB
     db = DB()
     try:
-        return {_norm(s.Content.FolderPath) for s in db.get_history_songs()
-                if s.Content is not None and s.Content.FolderPath}
+        paths, last, last_rank = set(), None, None
+        for s in db.get_history_songs():
+            c = s.Content
+            if c is None:
+                continue
+            if c.FolderPath:
+                paths.add(_norm(c.FolderPath))
+            h = s.History
+            rank = ((h.DateCreated or "") if h else "", s.TrackNo or 0)
+            if last_rank is None or rank > last_rank:
+                last_rank = rank
+                last = {"title": c.Title or "", "artist": getattr(c.Artist, "Name", "") or "",
+                        "bpm": (c.BPM or 0) / 100 or None,
+                        "key": getattr(c.Key, "ScaleName", None)}
+        return History(paths, last)
     finally:
         db.close()
 
 
 class HistoryPoller:
-    def __init__(self, cfg: Config, store: Store, lib: Library, source=history_paths):
+    def __init__(self, cfg: Config, store: Store, lib: Library, source=read_history):
         self.cfg, self.store, self.lib, self.source = cfg, store, lib, source
         self.status = "starting"
+        self.last: dict | None = None
+        self.last_at: float = 0.0
         self._stop = threading.Event()
 
     def start(self) -> None:
         threading.Thread(target=self._run, name="history", daemon=True).start()
 
     def poll_once(self) -> int:
-        ready = {_norm(r.path): r.id for r in self.store.ready() if r.path}
-        if not ready:
-            return 0
-        played = self.source()
+        h = self.source()
+        if h.last != self.last:
+            self.last = h.last
+            self.last_at = time.time()
         n = 0
-        for p, rid in ready.items():
-            if p in played:
+        for r in self.store.ready():
+            if r.path and _norm(r.path) in h.paths:
+                rid = r.id
                 self.store.set_status(rid, "played")
                 n += 1
         if n:
@@ -119,7 +144,7 @@ class HistoryPoller:
 
     def _run(self) -> None:
         fails = 0
-        while not self._stop.wait(self.cfg.history_poll):
+        while True:
             try:
                 self.poll_once()
                 self.status, fails = "ok", 0
@@ -128,6 +153,124 @@ class HistoryPoller:
                 self.status = f"error: {e}"[:200]
                 if fails in (1, 10):
                     log.warning("rekordbox history poll failed (%d): %s — use the manual 'played' button", fails, e)
+            if self._stop.wait(self.cfg.history_poll):
+                return
+
+
+class Target:
+    """The BPM/key the DJ is playing at: a manual override, else the last played track."""
+
+    def __init__(self, store: Store, hist: HistoryPoller):
+        self.store, self.hist = store, hist
+
+    def get(self) -> dict | None:
+        bpm = self.store.get("target_bpm")
+        if bpm:
+            return {"bpm": float(bpm), "key": analysis.camelot(self.store.get("target_key")) or None,
+                    "source": "override", "title": "", "at": 0.0}
+        last = self.hist.last
+        if last and last.get("bpm"):
+            return {**last, "key": analysis.camelot(last.get("key")), "source": "last played",
+                    "at": self.hist.last_at}
+        return None
+
+    def set(self, bpm: str, key: str) -> None:
+        try:
+            v = float(bpm)
+        except ValueError:
+            v = 0.0
+        if not 40 <= v <= 250:
+            raise ValueError("BPM must be 40–250")
+        self.store.set("target_bpm", f"{v:.1f}")
+        self.store.set("target_key", analysis.camelot(key) or "")
+
+    def clear(self) -> None:
+        self.store.set("target_bpm", "")
+        self.store.set("target_key", "")
+
+
+class Analyzer:
+    """Downloads (clip or full) and analyzes BPM/key in the background.
+
+    clip = guest search hints (45 s slice, approximate); full = DJ remix finder (whole
+    track kept, so Add is instant). Guest jobs are bounded so a busy search box can't
+    pile up downloads.
+    """
+
+    MAX_GUEST_BACKLOG = 15
+
+    def __init__(self, cfg: Config, store: Store, fetcher: Fetcher, run=None):
+        self.cfg, self.store, self.fetcher = cfg, store, fetcher
+        self.analyze = run or analysis.analyze
+        self.dj: queue.Queue[str] = queue.Queue()
+        self.guest: queue.Queue[str] = queue.Queue()
+        self._cpu = threading.Lock()  # one analysis at a time; downloads overlap
+        self.enabled = analysis.available() if run is None else True
+
+    @property
+    def clips_dir(self) -> Path:
+        return self.cfg.data_dir / "clips"
+
+    @property
+    def cands_dir(self) -> Path:
+        return self.cfg.data_dir / "candidates"
+
+    def start(self) -> None:
+        for kind in ("full", "clip"):
+            for r in self.store._q("SELECT video_id FROM candidates WHERE kind=? AND status NOT IN ('done','failed')",
+                                   (kind,)):
+                (self.dj if kind == "full" else self.guest).put(r["video_id"])
+        for name, q, kind in (("an-dj-0", self.dj, "full"), ("an-dj-1", self.dj, "full"),
+                              ("an-guest", self.guest, "clip")):
+            threading.Thread(target=self._run, args=(q, kind), name=name, daemon=True).start()
+
+    def request(self, track, kind: str) -> None:
+        if not self.enabled:
+            return
+        if kind == "clip" and (self.store.analysis(track.video_id) or self.guest.qsize() >= self.MAX_GUEST_BACKLOG):
+            return
+        if self.store.add_candidate(video_id=track.video_id, kind=kind, title=track.title,
+                                    uploader=track.uploader, duration=track.duration,
+                                    thumbnail=track.thumbnail):
+            (self.dj if kind == "full" else self.guest).put(track.video_id)
+
+    def _run(self, q: queue.Queue, kind: str) -> None:
+        while True:
+            self.process(q.get(), kind)
+
+    def process(self, video_id: str, kind: str) -> None:
+        c = self.store.candidate(video_id, kind)
+        if not c or c["status"] in ("done", "failed"):
+            return
+        try:
+            self.store.update_candidate(video_id, kind, status="downloading")
+            if kind == "full":
+                path = self.fetcher.download(video_id, self.cands_dir)
+            else:
+                path = self.fetcher.download_clip(video_id, self.clips_dir, c["duration"])
+            self.store.update_candidate(video_id, kind, status="analyzing", path=str(path))
+            with self._cpu:
+                res = self.analyze(path, 90.0 if kind == "full" else 45.0)
+            self.store.update_candidate(video_id, kind, status="done", bpm=res.bpm, key=res.key)
+            if kind == "clip":
+                Path(path).unlink(missing_ok=True)
+                self.store.update_candidate(video_id, kind, path=None)
+        except Exception as e:
+            log.warning("analysis %s/%s failed: %s", kind, video_id, e)
+            self.store.update_candidate(video_id, kind, status="failed", error=str(e)[:300])
+
+    def purge(self, keep: set[str]) -> int:
+        """Delete candidate/clip files not in ``keep`` (paths now used by requests)."""
+        n = 0
+        for p in self.store.drop_candidates():
+            if _norm(p) not in keep:
+                Path(p).unlink(missing_ok=True)
+                n += 1
+        for d in (self.clips_dir,):
+            if d.exists():
+                for f in d.iterdir():
+                    f.unlink(missing_ok=True)
+        return n
 
 
 def lan_ip() -> str:

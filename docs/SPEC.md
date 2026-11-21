@@ -21,6 +21,8 @@ them onto a deck (which imports + auto-analyzes them).
 | 11 | Stack | FastAPI + Jinja/HTMX + SQLite, single process on the Windows DJ laptop. htmx vendored (works without internet). |
 | 12 | Moderation | `/dj` behind a PIN: delete request, ban guest, pause/resume, toggle Funnel, show QR. |
 | 13 | Name | Mirlos. |
+| 14 | DJ remix finder | Target = last played track's BPM/key from rekordbox history, or a sticky manual override. Top 8 results downloaded in full and analyzed (SampleMiner grid/key); ranked by BPM fit (×1, ×2, ×½; ≤6% fits, ≤10% close) then Camelot key relation. Genre chips build the query. |
+| 15 | Guest BPM hints | DJ toggle (default on). "~N BPM" now-playing card; each search result analyzed from a 45 s clip and badged Fits now / Close / Slower / Faster. Guest clip backlog capped at 15. |
 
 ## Request lifecycle
 
@@ -54,4 +56,4 @@ Only `ready` requests appear in the XML. The XML is rewritten atomically
 
 ## Out of scope (v1)
 
-Paid gigs/licensing, streaming services, approval queue, SampleMiner integration.
+Paid gigs/licensing, streaming services, approval queue, live deck BPM (Pro DJ Link / MIDI clock).

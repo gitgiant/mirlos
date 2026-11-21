@@ -1,0 +1,23 @@
+<section class="target">
+  <div>
+    <span class="label">Target</span>
+    {% if target %}
+    <div class="big">{{ '%.1f' % target.bpm }} <small>BPM</small>{% if target.key %} · {{ target.key }}{% endif %}</div>
+    <small>{{ 'Manual override — sticks until cleared' if target.source == 'override' else 'Last played: ' ~ (target.artist ~ ' — ' if target.artist else '') ~ target.title }}</small>
+    {% else %}
+    <div class="big">—</div><small>Nothing played yet / history unavailable — set an override</small>
+    {% endif %}
+  </div>
+  <form method="post" action="/dj/target" class="override">
+    <input type="hidden" name="back_url" value="{{ request.url.path }}{{ '?' ~ request.url.query if request.url.query }}">
+    <label>BPM<input name="bpm" inputmode="decimal" placeholder="124" value="{{ '%.1f' % target.bpm if target and target.source == 'override' }}"></label>
+    <label>Key<input name="key" placeholder="8A / Am" value="{{ target.key if target and target.source == 'override' and target.key }}"></label>
+    <button>Set</button>
+  </form>
+  {% if target and target.source == 'override' %}
+  <form method="post" action="/dj/target">
+    <input type="hidden" name="back_url" value="{{ request.url.path }}{{ '?' ~ request.url.query if request.url.query }}">
+    <button class="off">Use last played</button>
+  </form>
+  {% endif %}
+</section>

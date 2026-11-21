@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 rekordbox = ["pyrekordbox>=0.4"]
+analysis = ["sampleminer"]  # BPM/key via SampleMiner (librosa; Beat This! if installed)
 dev = ["pytest", "httpx"]
 
 [project.scripts]
@@ -23,6 +24,7 @@ mirlos = "mirlos.__main__:main"
 
 [tool.uv.sources]
 ytfetch = { path = "../ytfetch", editable = true }
+sampleminer = { path = "../sampleminer", editable = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -33,4 +35,4 @@ packages = ["src/mirlos"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "../ytfetch/src"]
+pythonpath = ["src", "../ytfetch/src", "../sampleminer/src"]

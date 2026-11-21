@@ -5,6 +5,7 @@
 <section class="controls">
   <form method="post" action="/dj/pause"><button class="{{ 'bad' if paused }}">{{ 'Resume requests' if paused else 'Pause requests' }}</button></form>
   <form method="post" action="/dj/funnel"><button>{{ 'Funnel: ON (turn off)' if funnel else 'Funnel: off (turn on)' }}</button></form>
+  <form method="post" action="/dj/guestbpm"><button class="{{ '' if guest_bpm else 'off' }}">Guest BPM hints: {{ 'on' if guest_bpm else 'off' }}</button></form>
   <form method="post" action="/dj/reset" onsubmit="return confirm('Clear all requests for a new night?')"><button>New night</button></form>
   <form method="post" action="/dj/logout"><button>Log out</button></form>
 </section>
@@ -14,6 +15,7 @@
   <figure>{{ svg | safe }}<figcaption>{{ label }}<br><code>{{ url }}</code></figcaption></figure>
 {% endfor %}
 </section>
+{% include "_target.html" %}
 <form method="get" action="/dj/search" class="search">
   <input name="q" placeholder="Search YouTube (remixes, edits…)" maxlength="200"><button>Search</button>
 </form>

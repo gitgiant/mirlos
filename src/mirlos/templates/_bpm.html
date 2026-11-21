@@ -1,0 +1,3 @@
+{% if pending %}<span hx-get="/bpm/{{ vid }}" hx-trigger="load delay:2s" hx-swap="outerHTML"><span class="badge wait">BPM…</span></span>
+{% elif a %}<span> · ~{{ a.bpm | round | int }} BPM {% if fit.guest_label %}<span class="badge {{ fit.cls }}">{{ fit.guest_label }}</span>{% endif %}</span>
+{% endif %}
