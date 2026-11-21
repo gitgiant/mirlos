@@ -89,7 +89,7 @@ class Store:
 
     @property
     def guest_bpm(self) -> bool:
-        return self.get("guest_bpm", "1") == "1"
+        return self.get("guest_bpm", "0") == "1"
 
     # guests
     def guest(self, token: str) -> sqlite3.Row | None:

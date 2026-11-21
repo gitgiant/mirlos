@@ -203,7 +203,9 @@ def test_failed_download_can_retry(env):
 
 def test_location_windows_style():
     loc = rbxml.location("/tmp/a b&c.m4a")
-    assert loc == "file://localhost/tmp/a%20b%26c.m4a"
+    # Windows resolves to the current drive (file://localhost/C:/tmp/...); POSIX has none
+    assert loc.startswith("file://localhost/") and "//localhost//" not in loc
+    assert loc.endswith("/tmp/a%20b%26c.m4a")
 
 
 def test_remix_query_strips_junk():
@@ -266,6 +268,9 @@ def test_guest_bpm_hints(env):
     c, state, f, _ = env
     state.hist.poll_once()
     join(c)
+    assert c.get("/now").text == ""  # off by default
+    c.post("/dj/login", data={"pin": "123456"})
+    c.post("/dj/guestbpm")
     assert "~124 BPM" in c.get("/now").text
     r = c.post("/search", data={"q": "song"})
     assert r.text.count('hx-get="/bpm/') == 2  # LONG is over the cap: no analysis
@@ -275,7 +280,6 @@ def test_guest_bpm_hints(env):
     a = c.get(f"/bpm/{A}").text
     assert "~125 BPM" in a and "Fits now" in a
     assert "Fits now" in c.get(f"/bpm/{B}").text  # 62 → half-time fits
-    c.post("/dj/login", data={"pin": "123456"})
     c.post("/dj/guestbpm")
     assert c.get("/now").text == "" and c.get(f"/bpm/{A}").text == ""
 

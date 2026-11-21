@@ -58,7 +58,7 @@ candidates.
 
 ### Guest BPM hints
 
-With **Guest BPM hints** on (default), guests see "The DJ is playing around ~124 BPM", and each
+Off by default. With **Guest BPM hints** turned on (toggle on `/dj`), guests see "The DJ is playing around ~124 BPM", and each
 search result gets a rough BPM from a 45 s clip plus a **Fits now / Close / Slower / Faster**
 badge. Clips are deleted after analysis; at most 15 guest clips queue at once. Half/double-time
 misreads are possible on clips.
