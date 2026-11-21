@@ -41,6 +41,10 @@ everyone needs while Funnel is on.
 PIN-protected: QR codes, pause/resume, Funnel toggle, delete / mark played / retry requests,
 ban guests (drops their unplayed requests), **New night** (clears requests; files are kept).
 
+**Remixes** on any request searches YouTube for `<title> remix` (junk like *(Official Video)* stripped),
+with one-tap variants: edit, bootleg, VIP, extended mix, instrumental. A free search box sits above
+the table. DJ adds skip pause and the duration cap, and can bring back tracks you deleted earlier.
+
 ## Config (env vars)
 
 | Var | Default |

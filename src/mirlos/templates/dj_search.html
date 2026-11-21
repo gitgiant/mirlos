@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Mirlos · DJ search{% endblock %}
+{% block body %}
+<p><a href="/dj">← DJ</a></p>
+<form method="get" action="/dj/search" class="search">
+  <input name="q" value="{{ q }}" placeholder="Search remixes, edits, bootlegs…" maxlength="200" autofocus>
+  <button>Search</button>
+</form>
+{% if q %}
+<p class="hint">Try:
+  {% set base = q[:-6] if q.endswith(' remix') else q %}
+  {% for suffix in ['remix', 'edit', 'bootleg', 'VIP', 'extended mix', 'instrumental'] %}
+  <a href="/dj/search?q={{ (base ~ ' ' ~ suffix) | urlencode }}">{{ suffix }}</a>{{ ' · ' if not loop.last }}
+  {% endfor %}
+</p>
+{% endif %}
+{% if err %}<p class="msg bad">{{ err }}</p>{% endif %}
+{% if q and not results and not err %}<p class="msg bad">No results.</p>{% endif %}
+<ul class="results">
+{% for t in results %}
+  <li>
+    <img src="{{ t.thumbnail }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+    <div class="meta"><a href="https://youtu.be/{{ t.video_id }}" target="_blank" rel="noopener noreferrer"><b>{{ t.title }}</b></a>
+      <small>{{ t.uploader }}{% if t.duration %} · {{ t.duration // 60 }}:{{ '%02d' % (t.duration % 60) }}{% endif %}</small></div>
+    {% set st = have.get(t.video_id) %}
+    {% if st and st != 'deleted' %}
+      <span class="votes">{{ st }}</span>
+    {% else %}
+      <form method="post" action="/dj/add"><input type="hidden" name="video_id" value="{{ t.video_id }}">
+        <input type="hidden" name="q" value="{{ q }}"><button>Add</button></form>
+    {% endif %}
+  </li>
+{% endfor %}
+</ul>
+{% endblock %}

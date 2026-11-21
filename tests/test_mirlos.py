@@ -178,3 +178,33 @@ def test_failed_download_can_retry(env):
 def test_location_windows_style():
     loc = rbxml.location("/tmp/a b&c.m4a")
     assert loc == "file://localhost/tmp/a%20b%26c.m4a"
+
+
+def test_remix_query_strips_junk():
+    from mirlos.app import remix_query
+
+    assert remix_query("Daft Punk - One More Time (Official Video) [4K]") == "Daft Punk - One More Time remix"
+    assert remix_query("Song (feat. X) [Official Audio]") == "Song (feat. X) remix"
+    assert remix_query("Track | Lyrics Video") == "Track | Lyrics Video remix"
+
+
+def test_dj_remix_search_and_add(env):
+    c, state, f, _ = env
+    queries = []
+    f.search = lambda q, n=5: (queries.append(q), list(TRACKS.values())[:n])[1]
+    join(c).post("/request", data={"video_id": A})
+    assert c.get("/dj/search?rid=1", follow_redirects=False).status_code == 303  # needs DJ
+    c.post("/dj/login", data={"pin": "123456"})
+    assert "Remixes" in c.get("/dj").text
+    r = c.get("/dj/search?rid=1")
+    assert queries[-1] == "Song A remix" and "Song B" in r.text and "bootleg" in r.text
+    c.post("/dj/pause")  # DJ adds bypass pause and the duration cap
+    r = c.post("/dj/add", data={"video_id": LONG, "q": "Song A remix"}, follow_redirects=False)
+    assert r.headers["location"] == "/dj/search?q=Song%20A%20remix"
+    req = state.store.by_video(LONG)
+    assert req.guest_name == "DJ" and req.status == "queued"
+    drain(state)
+    assert state.store.by_video(LONG).status == "ready"
+    c.post("/dj/delete", data={"rid": req.id})
+    c.post("/dj/add", data={"video_id": LONG})  # DJ can restore a deleted track
+    assert state.store.by_video(LONG).status == "queued"

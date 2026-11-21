@@ -31,6 +31,18 @@ def _eq(a: str, b: str) -> bool:
     return hmac.compare_digest(a.encode(), b.encode())
 
 
+DJ_TOKEN = "dj"  # can't collide: guest tokens are 22-char random
+_JUNK = re.compile(r"\s*[\(\[][^\)\]]*\b(official|video|audio|lyrics?|visuali[sz]er|hd|hq|4k|mv|m/v)\b[^\)\]]*[\)\]]",
+                   re.I)
+
+
+def remix_query(title: str) -> str:
+    """'Artist - Song (Official Video) [4K]' → 'Artist - Song remix'"""
+    t = _JUNK.sub("", title)
+    t = re.sub(r"\s+", " ", t).strip(" -|")
+    return f"{t} remix"
+
+
 def _clean_name(s: str) -> str:
     return _CTRL.sub("", s).strip()[:32]
 
@@ -231,6 +243,43 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
         if pin_fails["n"] >= 5:
             pin_fails.update(n=0, until=now + 60)
         return render(req, "dj_login.html", error="Wrong PIN", status=403)
+
+    @app.get("/dj/search", response_class=HTMLResponse)
+    def dj_search(req: Request, q: str = "", rid: int = 0):
+        if not is_dj(req):
+            return RedirectResponse("/dj", 303)
+        if rid and (r := store.get_request(rid)):
+            q = remix_query(r.title)
+        q = q.strip()[:200]
+        results, err = [], ""
+        if q:
+            try:
+                results = fetcher.search(q, 10)
+            except Exception as e:
+                err = f"Search failed: {str(e)[:120]}"
+            for t in results:
+                cache.put(t)
+        have = {r.video_id: r.status for r in store.all()}
+        return render(req, "dj_search.html", q=q, results=results, have=have, err=err)
+
+    @app.post("/dj/add")
+    def dj_add(req: Request, video_id: str = Form(...), q: str = Form("")):
+        if not is_dj(req):
+            return RedirectResponse("/dj", 303)
+        try:
+            ytfetch.watch_url(video_id)
+            t = cache.get(video_id) or fetcher.resolve(video_id)
+        except Exception:
+            return RedirectResponse("/dj?err=" + quote("Couldn't add that video"), 303)
+        store.upsert_guest(DJ_TOKEN, "DJ")
+        outcome, rid = store.submit(video_id=t.video_id, title=t.title, uploader=t.uploader,
+                                    duration=t.duration, thumbnail=t.thumbnail, guest=DJ_TOKEN)
+        if outcome == "blocked":  # DJ deleted it earlier; DJ can bring it back
+            store.set_status(rid, "queued")
+            outcome = "added"
+        if outcome in ("added", "retry"):
+            dl.enqueue(rid)
+        return RedirectResponse("/dj/search?q=" + quote(q), 303)
 
     @app.post("/dj/{action}")
     def dj_action(req: Request, action: str, rid: int = Form(0), token: str = Form("")):
