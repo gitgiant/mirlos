@@ -40,7 +40,7 @@ everyone needs while Funnel is on.
 ## DJ page — `/dj`
 
 PIN-protected: QR codes, pause/resume, Funnel toggle, delete / mark played / retry requests,
-ban guests (drops their unplayed requests), **New night** (clears requests; files are kept).
+ban guests (drops their unplayed requests), **Clear** (clears requests; files are kept).
 
 ### Remix finder (BPM-matched)
 
@@ -53,7 +53,7 @@ the table. The top 8 results are downloaded in full and analyzed (BPM + Camelot 
 background, then ranked against the target: **on target / ±x%** (≤6% fits, ≤10% close),
 **half-time ×2 / double-time ×½**, and key **same / compatible / relative / +2 steps / clash**.
 **Add** on an analyzed candidate is instant (the file is already downloaded). DJ adds skip pause
-and the duration cap, and can bring back tracks you deleted earlier. *New night* deletes unused
+and the duration cap, and can bring back tracks you deleted earlier. *Clear* deletes unused
 candidates.
 
 ### Guest BPM hints
