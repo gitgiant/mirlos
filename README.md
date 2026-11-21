@@ -74,6 +74,7 @@ misreads are possible on clips.
 | `MIRLOS_MAX_DURATION` | `600` s |
 | `MIRLOS_WORKERS` | `2` parallel downloads |
 | `MIRLOS_HISTORY_POLL` | `30` s |
+| `MIRLOS_COOKIES_FROM_BROWSER` | `firefox`: signs YouTube requests in with that browser's login, which avoids "Sign in to confirm you're not a bot". Set to empty to turn off |
 | `MIRLOS_XML_PATH` | `<data>/rekordbox.xml` |
 
 ## First-run checks

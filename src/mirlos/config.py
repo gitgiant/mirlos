@@ -21,6 +21,8 @@ class Config:
     max_duration: int = field(default_factory=lambda: int(_env("MAX_DURATION", "600")))
     workers: int = field(default_factory=lambda: int(_env("WORKERS", "2")))
     history_poll: int = field(default_factory=lambda: int(_env("HISTORY_POLL", "30")))
+    # sign YouTube requests in with this browser's cookies (YouTube's bot check); "" = off
+    cookies_from_browser: str = field(default_factory=lambda: _env("COOKIES_FROM_BROWSER", "firefox"))
     xml_path: Path | None = None
 
     def __post_init__(self) -> None:
