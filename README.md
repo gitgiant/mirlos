@@ -49,12 +49,19 @@ The **target** is the BPM/key of the last track in your rekordbox history (refre
 
 **Remixes** on any request searches YouTube for `<title> remix` (junk like *(Official Video)* stripped),
 with one-tap variants: edit, bootleg, VIP, extended mix, instrumental. A free search box sits above
-the table. The top 8 results are downloaded in full and analyzed (BPM + Camelot key) in the
-background, then ranked against the target: **on target / ±x%** (≤6% fits, ≤10% close),
-**half-time ×2 / double-time ×½**, and key **same / compatible / relative / +2 steps / clash**.
-**Add** on an analyzed candidate is instant (the file is already downloaded). DJ adds skip pause
-and the duration cap, and can bring back tracks you deleted earlier. *Clear* deletes unused
-candidates.
+the table. Results are only listed; nothing downloads until you pick. Each result has **▶ Preview**
+(an embedded player) and **Analyze**, which downloads it and detects BPM + Camelot key in the
+background; **Analyze all** does the whole list. Analyzed results move to the top, ranked against
+the target: **on target / ±x%** (≤6% fits, ≤10% close), **half-time ×2 / double-time ×½**, and key
+**same / compatible / relative / +2 steps / clash**. **Add** on an analyzed result is instant (the file
+is already downloaded); on any other result it downloads normally. DJ adds skip pause and the
+duration cap, and can bring back tracks you deleted earlier. *Clear* deletes unused candidates.
+
+### Status
+
+**Status** on `/dj` (with a count of active jobs) opens `/dj/status`: request downloads with live
+progress, the download queue, failures with **Retry**, and what's being downloaded or analyzed
+for the remix finder and guest BPM hints. It refreshes every 2 s.
 
 ### Guest BPM hints
 

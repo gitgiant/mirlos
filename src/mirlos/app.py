@@ -22,7 +22,7 @@ import ytfetch
 from .config import Config
 from . import analysis
 from .services import (_APPROVE_RE, Analyzer, Downloader, Fetcher, Funnel, FunnelNeedsApproval, HistoryPoller,
-                       Library, Target, _norm, lan_ip)
+                       Library, Progress, Target, _norm, lan_ip)
 from .store import Store
 
 HERE = Path(__file__).parent
@@ -66,10 +66,11 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
     fetcher = fetcher or ytfetch
     store = Store(cfg.db_path)
     lib = Library(cfg, store)
-    dl = Downloader(cfg, store, lib, fetcher)
+    progress = Progress()
+    dl = Downloader(cfg, store, lib, fetcher, progress)
     hist = HistoryPoller(cfg, store, lib, **({"source": history_source} if history_source else {}))
     funnel = Funnel(cfg.port)
-    an = Analyzer(cfg, store, fetcher, run=analyze_fn)
+    an = Analyzer(cfg, store, fetcher, run=analyze_fn, progress=progress)
     target = Target(store, hist)
     cache = TrackCache()
     pin_fails = {"n": 0, "until": 0.0}
@@ -88,7 +89,8 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
                        same_site="lax", max_age=12 * 3600)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     tpl = Jinja2Templates(directory=HERE / "templates")
-    app.state.__dict__.update(cfg=cfg, store=store, lib=lib, dl=dl, hist=hist, funnel=funnel, an=an, target=target)
+    app.state.__dict__.update(cfg=cfg, store=store, lib=lib, dl=dl, hist=hist, funnel=funnel, an=an, target=target,
+                         progress=progress)
 
     def render(req: Request, name: str, status: int = 200, headers: dict | None = None, **ctx) -> HTMLResponse:
         ctx.setdefault("paused", store.paused)
@@ -221,8 +223,43 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
     def is_dj(req: Request) -> bool:
         return req.session.get("dj") is True
 
-    def back() -> RedirectResponse:
-        return RedirectResponse("/dj", 303)
+    def back(to: str = "") -> RedirectResponse:
+        return RedirectResponse(to if to in ("/dj/status",) else "/dj", 303)
+
+    # ---------------------------------------------------------------- status
+    def status_ctx() -> dict:
+        now = time.time()
+
+        def live(key: str) -> dict:
+            p = progress.get(key)
+            return {"pct": p[0], "secs": int(now - p[1])} if p else {"pct": 0, "secs": None}
+
+        reqs = store.all()
+        downloading = [(r, live(f"req:{r.id}")) for r in reqs if r.status == "downloading"]
+        queued = sorted((r for r in reqs if r.status == "queued"), key=lambda r: r.created)
+        failed = [r for r in reqs if r.status == "failed"]
+        jobs = store.candidate_jobs()
+        cands = {st: [(c, live(f"{c['kind']}:{c['video_id']}")) for c in jobs if c["status"] == st]
+                 for st in ("downloading", "analyzing", "queued", "failed")}
+        active = len(downloading) + len(queued) + sum(len(cands[k]) for k in ("downloading", "analyzing", "queued"))
+        return dict(downloading=downloading, queued=queued, failed=failed, cands=cands, active=active,
+                    done=store.candidate_done_counts(), analysis_on=an.enabled)
+
+    def active_jobs() -> int:
+        n = sum(1 for r in store.all() if r.status in ("queued", "downloading"))
+        return n + sum(1 for c in store.candidate_jobs() if c["status"] != "failed")
+
+    @app.get("/dj/status", response_class=HTMLResponse)
+    def dj_status(req: Request):
+        if not is_dj(req):
+            return RedirectResponse("/dj", 303)
+        return render(req, "dj_status.html", **status_ctx())
+
+    @app.get("/dj/status/panel", response_class=HTMLResponse)
+    def dj_status_panel(req: Request):
+        if not is_dj(req):
+            return HTMLResponse("", status_code=401)
+        return render(req, "_status.html", **status_ctx())
 
     @app.get("/dj", response_class=HTMLResponse)
     def dj(req: Request, err: str = "", approve: str = ""):
@@ -241,7 +278,8 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
                for label, url in links]
         return render(req, "dj.html", items=store.all(), guests=store.guests(), qrs=qrs,
                       funnel=fun_on, code=code, hist=hist.status, xml=str(cfg.xml_path), err=err, approve=approve,
-                      target=target.get(), guest_bpm=store.guest_bpm, analysis_on=an.enabled)
+                      target=target.get(), guest_bpm=store.guest_bpm, analysis_on=an.enabled,
+                      jobs=active_jobs())
 
     @app.post("/dj/login")
     def dj_login(req: Request, pin: str = Form(...)):
@@ -277,37 +315,65 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
                 results = fetcher.search(q, 8)
             except Exception as e:
                 err = f"Search failed: {str(e)[:120]}"
-            for t in results:
+            for t in results:  # listed only; the DJ previews and picks what to analyze
                 cache.put(t)
-                an.request(t, "full")
         ids = ",".join(t.video_id for t in results)
         return render(req, "dj_search.html", q=q, base=base, style=style, rid=rid, src=src, ids=ids,
                       styles=STYLES, err=err, target=target.get(), analysis_on=an.enabled)
 
     def ranked(ids: list[str]):
+        """Search results for the remix finder: analyzed ones ranked by fit, the rest in search order."""
         tgt = target.get() or {}
         have = {r.video_id: r.status for r in store.all()}
+        known = {c["video_id"]: c for c in store.candidates(ids, "full")}
         rows = []
-        for i, c in enumerate(store.candidates(ids, "full")):
+        for i, vid in enumerate(ids):
+            c = known.get(vid)
+            if c is None:
+                t = cache.get(vid)
+                if t is None:
+                    continue
+                c = {"video_id": vid, "title": t.title, "uploader": t.uploader, "duration": t.duration,
+                     "thumbnail": t.thumbnail, "status": "new", "bpm": None, "key": None, "error": None}
             f = analysis.fit(c["bpm"], tgt.get("bpm"))
             krank, klabel = analysis.key_relation(c["key"], tgt.get("key"))
-            order = {"fits": 0, "close": 1, "slower": 2, "faster": 2}.get(f.cls, 3)
-            pending = c["status"] not in ("done", "failed")
+            st = c["status"]
+            pending = st in ("queued", "downloading", "analyzing")
+            group = 0 if st == "done" else 1 if pending else 2 if st == "new" else 3
+            order = {"fits": 0, "close": 1, "slower": 2, "faster": 2}.get(f.cls, 3) if st == "done" else 0
             rows.append({"c": c, "fit": f, "klabel": klabel, "krank": krank, "pending": pending,
-                         "have": have.get(c["video_id"]),
-                         "sort": (pending, c["status"] == "failed", order, abs(f.pct), krank, i)})
+                         "have": have.get(vid),
+                         "sort": (group, order, abs(f.pct) if st == "done" else 0, krank if st == "done" else 0, i)})
         rows.sort(key=lambda r: r["sort"])
         return rows
+
+    def cands_view(req: Request, ids: str, q: str) -> HTMLResponse:
+        vids = [v for v in ids.split(",") if ytfetch._ID_RE.match(v)][:20]
+        rows = ranked(vids)
+        done = sum(r["c"]["status"] == "done" for r in rows)
+        busy = sum(r["pending"] for r in rows)
+        new = sum(r["c"]["status"] == "new" for r in rows)
+        return render(req, "_cands.html", rows=rows, done=done, busy=busy, new=new, total=len(rows), ids=ids,
+                      q=q, polling=busy > 0, target=target.get(), analysis_on=an.enabled)
 
     @app.get("/dj/cands", response_class=HTMLResponse)
     def dj_cands(req: Request, ids: str = "", q: str = ""):
         if not is_dj(req):
             return HTMLResponse("", status_code=401)
+        return cands_view(req, ids, q)
+
+    @app.post("/dj/analyze", response_class=HTMLResponse)
+    def dj_analyze(req: Request, ids: str = Form(""), q: str = Form(""), video_id: str = Form(""),
+                   all: str = Form("")):
+        """Download + analyze the picked search result (or all of them) for BPM/key."""
+        if not is_dj(req):
+            return HTMLResponse("", status_code=401)
         vids = [v for v in ids.split(",") if ytfetch._ID_RE.match(v)][:20]
-        rows = ranked(vids)
-        done = sum(not r["pending"] for r in rows)
-        return render(req, "_cands.html", rows=rows, done=done, total=len(rows), ids=ids, q=q,
-                      polling=any(r["pending"] for r in rows), target=target.get())
+        for vid in (vids if all else [video_id] if video_id in vids else []):
+            t = cache.get(vid)
+            if t is not None:
+                an.request(t, "full")
+        return cands_view(req, ids, q)
 
     @app.post("/dj/add")
     def dj_add(req: Request, video_id: str = Form(...), q: str = Form(""), back_url: str = Form("")):
@@ -371,7 +437,7 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
         return render(req, "_bpm.html", vid=video_id, a=a, pending=pending, fit=f)
 
     @app.post("/dj/{action}")
-    def dj_action(req: Request, action: str, rid: int = Form(0), token: str = Form("")):
+    def dj_action(req: Request, action: str, rid: int = Form(0), token: str = Form(""), next: str = Form("")):
         if not is_dj(req):
             return RedirectResponse("/dj", 303)
         if action == "logout":
@@ -413,6 +479,6 @@ def create_app(cfg: Config | None = None, fetcher: Fetcher | None = None,
                 return RedirectResponse("/dj?err=" + quote(f"Funnel: {str(e)[:120]}"), 303)
         else:
             return Response(status_code=404)
-        return back()
+        return back(next)
 
     return app

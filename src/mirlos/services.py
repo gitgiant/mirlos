@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import os
@@ -30,6 +31,43 @@ class Fetcher(Protocol):
     def download_clip(self, video_id: str, dest: Path, duration: int | None = None) -> Path: ...
 
 
+class Progress:
+    """Live percent + start time for running downloads, keyed like ``req:12`` or ``full:<video id>``."""
+
+    def __init__(self) -> None:
+        self._d: dict[str, tuple[int, float]] = {}
+        self._lock = threading.Lock()
+
+    def track(self, key: str):
+        """Start tracking ``key``; returns a ``progress(fraction, title)`` callback for the fetcher."""
+        started = time.time()
+        with self._lock:
+            self._d[key] = (0, started)
+
+        def cb(frac: float, _title: str = "") -> None:
+            with self._lock:
+                if key in self._d:
+                    self._d[key] = (max(0, min(100, int(frac * 100))), started)
+        return cb
+
+    def done(self, key: str) -> None:
+        with self._lock:
+            self._d.pop(key, None)
+
+    def get(self, key: str) -> tuple[int, float] | None:
+        with self._lock:
+            return self._d.get(key)
+
+
+def _download(fn, video_id: str, dest: Path, progress, **kw) -> Path:
+    """Call a fetcher download function, passing ``progress`` only if it accepts one."""
+    try:
+        accepts = "progress" in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        accepts = False
+    return fn(video_id, dest, **kw, **({"progress": progress} if accepts else {}))
+
+
 class Library:
     """Owns the XML file; call refresh() after any change that affects ready tracks."""
 
@@ -43,8 +81,9 @@ class Library:
 
 
 class Downloader:
-    def __init__(self, cfg: Config, store: Store, lib: Library, fetcher: Fetcher):
+    def __init__(self, cfg: Config, store: Store, lib: Library, fetcher: Fetcher, progress: Progress | None = None):
         self.cfg, self.store, self.lib, self.fetcher = cfg, store, lib, fetcher
+        self.progress = progress or Progress()
         self.q: queue.Queue[int] = queue.Queue()
         self._threads: list[threading.Thread] = []
 
@@ -68,12 +107,15 @@ class Downloader:
         if not r or r.status not in ("queued", "downloading"):
             return
         self.store.set_status(rid, "downloading")
+        key = f"req:{rid}"
         try:
-            path = self.fetcher.download(r.video_id, self.cfg.requests_dir)
+            path = _download(self.fetcher.download, r.video_id, self.cfg.requests_dir, self.progress.track(key))
         except Exception as e:
             log.warning("download %s failed: %s", r.video_id, e)
             self.store.set_status(rid, "failed", error=str(e)[:300])
             return
+        finally:
+            self.progress.done(key)
         cur = self.store.get_request(rid)
         if cur and cur.status == "downloading":  # may have been deleted meanwhile
             self.store.set_status(rid, "ready", path=str(path))
@@ -200,8 +242,9 @@ class Analyzer:
 
     MAX_GUEST_BACKLOG = 15
 
-    def __init__(self, cfg: Config, store: Store, fetcher: Fetcher, run=None):
+    def __init__(self, cfg: Config, store: Store, fetcher: Fetcher, run=None, progress: Progress | None = None):
         self.cfg, self.store, self.fetcher = cfg, store, fetcher
+        self.progress = progress or Progress()
         self.analyze = run or analysis.analyze
         self.dj: queue.Queue[str] = queue.Queue()
         self.guest: queue.Queue[str] = queue.Queue()
@@ -245,10 +288,15 @@ class Analyzer:
             return
         try:
             self.store.update_candidate(video_id, kind, status="downloading")
-            if kind == "full":
-                path = self.fetcher.download(video_id, self.cands_dir)
-            else:
-                path = self.fetcher.download_clip(video_id, self.clips_dir, c["duration"])
+            key = f"{kind}:{video_id}"
+            try:
+                if kind == "full":
+                    path = _download(self.fetcher.download, video_id, self.cands_dir, self.progress.track(key))
+                else:
+                    path = _download(self.fetcher.download_clip, video_id, self.clips_dir, self.progress.track(key),
+                                     duration=c["duration"])
+            finally:
+                self.progress.done(key)
             self.store.update_candidate(video_id, kind, status="analyzing", path=str(path))
             with self._cpu:
                 res = self.analyze(path, 90.0 if kind == "full" else 45.0)

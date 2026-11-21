@@ -215,6 +215,14 @@ class Store:
             f"SELECT * FROM candidates WHERE kind=? AND video_id IN ({ph})", (kind, *video_ids))}
         return [rows[v] for v in video_ids if v in rows]
 
+    def candidate_jobs(self) -> list[sqlite3.Row]:
+        """Candidates still queued/downloading/analyzing, plus failures, oldest first."""
+        return self._q("SELECT * FROM candidates WHERE status != 'done' ORDER BY created")
+
+    def candidate_done_counts(self) -> dict[str, int]:
+        return {r["kind"]: r["n"] for r in
+                self._q("SELECT kind, COUNT(*) AS n FROM candidates WHERE status='done' GROUP BY kind")}
+
     def drop_candidates(self) -> list[str]:
         """Forget all candidates; return their file paths (caller deletes files not in use)."""
         with self._lock:

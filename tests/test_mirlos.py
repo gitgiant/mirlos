@@ -231,12 +231,13 @@ def test_dj_remix_search_and_add(env):
     r = c.post("/dj/add", data={"video_id": LONG, "q": "Song A remix"}, follow_redirects=False)
     assert r.headers["location"] == "/dj/search?q=Song%20A%20remix"
     req = state.store.by_video(LONG)
-    assert req.guest_name == "DJ" and req.status == "queued"  # added before its analysis finished
+    assert req.guest_name == "DJ" and req.status == "queued"  # not analyzed: downloads normally
     drain(state)
     assert state.store.by_video(LONG).status == "ready"
     c.post("/dj/delete", data={"rid": req.id})
     c.post("/dj/add", data={"video_id": LONG})  # DJ can restore a deleted track
-    assert state.store.by_video(LONG).status == "ready"  # analyzed copy reused, no re-download
+    drain(state)
+    assert state.store.by_video(LONG).status == "ready"
 
 
 def test_camelot_and_key_relation():
@@ -290,6 +291,7 @@ def test_target_override_and_ranking(env):
     c.post("/dj/login", data={"pin": "123456"})
     assert "Last played: Glass Harbor — Nightline" in c.get("/dj/search").text
     c.get("/dj/search?q=anything")
+    c.post("/dj/analyze", data={"ids": f"{A},{B},{LONG}", "all": "1"})
     drain(state)
     rows = c.get(f"/dj/cands?ids={A},{B},{LONG}").text
     assert rows.index("Song B") < rows.index("Song A") < rows.index("Ten Hour")  # 62×2 = 124 exact beats +0.8%
@@ -307,6 +309,7 @@ def test_dj_add_analyzed_candidate_is_instant(env):
     c, state, f, _ = env
     c.post("/dj/login", data={"pin": "123456"})
     c.get("/dj/search?q=anything")
+    c.post("/dj/analyze", data={"ids": f"{A},{B}", "video_id": A})
     drain(state)
     n = len(f.downloads)
     c.post("/dj/add", data={"video_id": A, "q": "anything"})
@@ -354,3 +357,57 @@ def test_dj_page_shows_only_tailscale_approval_links(env):
     assert f'href="{link}"' in page.replace("&amp;", "&")
     assert state.store.get("funnel") != "1"
     assert "evil.example" not in c.get("/dj?approve=https://evil.example/x").text
+
+
+def test_remix_search_lists_without_downloading_until_picked(env):
+    c, state, f, _ = env
+    c.post("/dj/login", data={"pin": "123456"})
+    c.get("/dj/search?q=anything")
+    drain(state)
+    assert f.downloads == []  # nothing downloaded just by searching
+    ids = f"{A},{B},{LONG}"
+    rows = c.get(f"/dj/cands?ids={ids}").text
+    assert "3 not analyzed" in rows and "Analyze all" in rows and "youtube-nocookie.com/embed/" + A in rows
+    assert rows.index("Song A") < rows.index("Song B")  # search order kept until analyzed
+
+    rows = c.post("/dj/analyze", data={"ids": ids, "video_id": B}).text
+    assert state.store.candidate(B, "full")["status"] == "queued" and state.store.candidate(A, "full") is None
+    assert "Analyzing 1 pick" in rows
+    drain(state)
+    assert f.downloads == [B]
+    rows = c.get(f"/dj/cands?ids={ids}").text
+    assert rows.index("Song B") < rows.index("Song A")  # analyzed result ranks first
+    assert c.post("/dj/analyze", data={"ids": ids, "video_id": "notinlist00"}).status_code == 200
+    assert state.store.candidate("notinlist00", "full") is None
+
+
+def test_status_page_shows_live_download_progress(env):
+    c, state, f, _ = env
+    assert c.get("/dj/status", follow_redirects=False).status_code == 303  # DJ only
+    assert c.get("/dj/status/panel").status_code == 401
+    c.post("/dj/login", data={"pin": "123456"})
+    join(c).post("/request", data={"video_id": A})
+    rid = state.store.by_video(A).id
+    seen = {}
+
+    def slow_download(vid, dest, progress=None):
+        progress(0.42, "Song A")
+        seen["panel"] = c.get("/dj/status/panel").text
+        return FakeFetcher.download(f, vid, dest)
+
+    f.download = slow_download
+    drain(state)
+    assert "downloading" in seen["panel"] and "42%" in seen["panel"] and "Song A" in seen["panel"]
+    assert state.store.get_request(rid).status == "ready"
+    assert "No request downloads running" in c.get("/dj/status/panel").text
+
+    f.download = lambda vid, dest: (_ for _ in ()).throw(RuntimeError("bot check"))
+    c.post("/request", data={"video_id": B})
+    drain(state)
+    page = c.get("/dj/status").text
+    assert "bot check" in page and 'name="next" value="/dj/status"' in page
+    rid_b = state.store.by_video(B).id
+    r = c.post("/dj/retry", data={"rid": rid_b, "next": "/dj/status"}, follow_redirects=False)
+    assert r.headers["location"] == "/dj/status"
+    assert c.post("/dj/retry", data={"rid": rid_b, "next": "https://evil.example"},
+                  follow_redirects=False).headers["location"] == "/dj"

@@ -1,0 +1,45 @@
+{# Live jobs; polls itself every 2 s. #}
+{% macro bar(p) -%}
+<div class="jobbar"><div style="width: {{ p.pct }}%"></div></div>
+{%- endmacro %}
+{% macro secs(p) -%}{% if p.secs is not none %}{{ p.secs // 60 }}:{{ '%02d' % (p.secs % 60) }}{% endif %}{%- endmacro %}
+{% macro yt(vid, title) -%}<a href="https://youtu.be/{{ vid }}" target="_blank" rel="noopener noreferrer">{{ title }}</a>{%- endmacro %}
+<div id="status" hx-get="/dj/status/panel" hx-trigger="every 2s" hx-swap="outerHTML">
+<p class="hint">{% if active %}<b>{{ active }}</b> active job{{ 's' if active != 1 }}{% else %}Nothing running{% endif %}
+  · analyzed tonight: {{ done.get('full', 0) }} remix candidates, {{ done.get('clip', 0) }} guest clips
+  {% if not analysis_on %}· <span class="bad-text">analysis off (sampleminer not installed)</span>{% endif %}</p>
+
+<h2>Request downloads</h2>
+<ul class="jobs">
+{% for r, p in downloading %}
+  <li><span class="state dl">downloading</span><div class="what">{{ yt(r.video_id, r.title) }}<small>{{ r.guest_name }}</small>{{ bar(p) }}</div>
+    <span class="num">{{ p.pct }}%<small>{{ secs(p) }}</small></span></li>
+{% endfor %}
+{% for r in queued %}
+  <li><span class="state">queued #{{ loop.index }}</span><div class="what">{{ yt(r.video_id, r.title) }}<small>{{ r.guest_name }}</small></div></li>
+{% endfor %}
+{% for r in failed %}
+  <li class="failed"><span class="state bad-text">failed</span><div class="what">{{ yt(r.video_id, r.title) }}<small class="bad">{{ r.error }}</small></div>
+    <form method="post" action="/dj/retry"><input type="hidden" name="rid" value="{{ r.id }}"><input type="hidden" name="next" value="/dj/status"><button>Retry</button></form></li>
+{% endfor %}
+{% if not (downloading or queued or failed) %}<li class="empty">No request downloads running.</li>{% endif %}
+</ul>
+
+<h2>Analysis (remix finder &amp; guest BPM hints)</h2>
+<ul class="jobs">
+{% for c, p in cands.analyzing %}
+  <li><span class="state an">analyzing</span><div class="what">{{ yt(c.video_id, c.title) }}<small>{{ 'remix candidate' if c.kind == 'full' else 'guest clip' }}</small></div></li>
+{% endfor %}
+{% for c, p in cands.downloading %}
+  <li><span class="state dl">downloading</span><div class="what">{{ yt(c.video_id, c.title) }}<small>{{ 'remix candidate' if c.kind == 'full' else 'guest clip (45 s)' }}</small>{% if c.kind == 'full' %}{{ bar(p) }}{% endif %}</div>
+    <span class="num">{% if c.kind == 'full' %}{{ p.pct }}%{% endif %}<small>{{ secs(p) }}</small></span></li>
+{% endfor %}
+{% for c, p in cands.queued %}
+  <li><span class="state">queued</span><div class="what">{{ yt(c.video_id, c.title) }}<small>{{ 'remix candidate' if c.kind == 'full' else 'guest clip' }}</small></div></li>
+{% endfor %}
+{% for c, p in cands.failed %}
+  <li class="failed"><span class="state bad-text">failed</span><div class="what">{{ yt(c.video_id, c.title) }}<small class="bad">{{ c.error }}</small></div></li>
+{% endfor %}
+{% if not (cands.analyzing or cands.downloading or cands.queued or cands.failed) %}<li class="empty">Nothing being analyzed.</li>{% endif %}
+</ul>
+</div>

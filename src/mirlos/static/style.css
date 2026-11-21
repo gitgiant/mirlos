@@ -55,3 +55,27 @@ a.btn { padding:.3rem .5rem; font-size:.8rem; border-radius:.5rem; background:#2
 .cands .num { display:flex; flex-direction:column; align-items:flex-end; gap:.2rem; width:7.5rem; }
 .cands .num.key { width:5.5rem; } .k0, .k1 { color:#7be3a6; } .k2 { color:#ffcf70; } .k3 { color:#ff9a9a; }
 button.off { background:#2a2a33; color:var(--fg); }
+
+/* DJ status page */
+ul.jobs { list-style:none; padding:0; margin:0; }
+.jobs li { display:flex; gap:.7rem; align-items:center; padding:.55rem 0; border-bottom:1px solid #222; }
+.jobs li.empty { color:var(--mut); font-size:.85rem; }
+.jobs .what { flex:1; min-width:0; } .jobs .what a { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.jobs .what small { display:block; }
+.jobs .state { flex:none; width:6.5rem; font-size:.75rem; font-weight:700; color:var(--mut); text-transform:uppercase; letter-spacing:.04em; }
+.jobs .state.dl { color:var(--acc); } .jobs .state.an { color:var(--ok); }
+.jobs .num { flex:none; text-align:right; font-variant-numeric:tabular-nums; } .jobs .num small { display:block; }
+.jobbar { height:5px; border-radius:3px; background:#23232b; overflow:hidden; margin-top:.3rem; }
+.jobbar div { height:100%; background:var(--acc); transition:width .4s; }
+.bad-text { color:var(--bad); }
+.status-link { display:inline-flex; align-items:center; gap:.35rem; padding:.6rem .9rem; font-size:1rem; }
+.status-link .count { background:var(--acc); color:#111; border-radius:999px; padding:0 .45rem; font-size:.8rem; }
+
+/* remix finder: preview + pick */
+.preview { margin-top:.3rem; }
+.preview summary { cursor:pointer; color:var(--acc); font-size:.8rem; font-weight:700; list-style:none; width:max-content; }
+.preview summary::-webkit-details-marker { display:none; }
+.preview[open] summary { color:var(--mut); }
+.preview iframe { display:block; width:100%; max-width:26rem; aspect-ratio:16/9; border:0; border-radius:.4rem; margin-top:.4rem; background:#000; }
+button.small { padding:.3rem .6rem; font-size:.8rem; }
+button.ghost { background:#2a2a33; color:var(--fg); }

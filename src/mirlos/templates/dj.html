@@ -10,6 +10,7 @@
   <form method="post" action="/dj/funnel"><button>{{ 'Funnel: ON (turn off)' if funnel else 'Funnel: off (turn on)' }}</button></form>
   <form method="post" action="/dj/guestbpm"><button class="{{ '' if guest_bpm else 'off' }}">Guest BPM hints: {{ 'on' if guest_bpm else 'off' }}</button></form>
   <form method="post" action="/dj/reset" onsubmit="return confirm('Clear all requests? Downloaded files are kept.')"><button>Clear</button></form>
+  <a class="btn status-link" href="/dj/status">Status{% if jobs %} <span class="count">{{ jobs }}</span>{% endif %}</a>
   <form method="post" action="/dj/logout"><button>Log out</button></form>
 </section>
 <p class="hint">History poller: {{ hist }} · XML: <code>{{ xml }}</code>{% if funnel %} · Event code <b>{{ code }}</b>{% endif %}</p>
