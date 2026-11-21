@@ -13,6 +13,8 @@ def _env(name: str, default: str) -> str:
 @dataclass
 class Config:
     data_dir: Path = field(default_factory=lambda: Path(_env("DATA_DIR", str(Path.home() / "Mirlos"))))
+    # where request audio lands (inside the music library, so rekordbox finds it next to everything else)
+    music_dir: Path = field(default_factory=lambda: Path(_env("MUSIC_DIR", str(Path.home() / "Music" / "mirlos"))))
     host: str = field(default_factory=lambda: _env("HOST", "0.0.0.0"))
     port: int = field(default_factory=lambda: int(_env("PORT", "8080")))
     dj_pin: str = field(default_factory=lambda: _env("DJ_PIN", ""))
@@ -24,7 +26,8 @@ class Config:
     def __post_init__(self) -> None:
         self.data_dir = Path(self.data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.requests_dir.mkdir(exist_ok=True)
+        self.music_dir = Path(self.music_dir)
+        self.requests_dir.mkdir(parents=True, exist_ok=True)
         if self.xml_path is None:
             self.xml_path = Path(_env("XML_PATH", str(self.data_dir / "rekordbox.xml")))
         if not self.dj_pin:
@@ -32,7 +35,7 @@ class Config:
 
     @property
     def requests_dir(self) -> Path:
-        return self.data_dir / "requests"
+        return self.music_dir
 
     @property
     def db_path(self) -> Path:

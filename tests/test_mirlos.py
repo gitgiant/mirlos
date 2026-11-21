@@ -56,7 +56,7 @@ def fake_analyze(path, window=90.0):
 @pytest.fixture
 def env(tmp_path):
     played: set[str] = set()
-    cfg = Config(data_dir=tmp_path, dj_pin="123456")
+    cfg = Config(data_dir=tmp_path, music_dir=tmp_path / "music", dj_pin="123456")
     f = FakeFetcher()
     last = {"title": "Nightline", "artist": "Glass Harbor", "bpm": 124.0, "key": "Am"}
     app = create_app(cfg, fetcher=f, start_services=False, history_source=lambda: History(played, last),

@@ -67,7 +67,8 @@ misreads are possible on clips.
 
 | Var | Default |
 |---|---|
-| `MIRLOS_DATA_DIR` | `~/Mirlos` (db, `requests/`, `rekordbox.xml`) |
+| `MIRLOS_DATA_DIR` | `~/Mirlos` (db, `rekordbox.xml`, PIN) |
+| `MIRLOS_MUSIC_DIR` | `~/Music/mirlos` (downloaded requests) |
 | `MIRLOS_PORT` / `MIRLOS_HOST` | `8080` / `0.0.0.0` |
 | `MIRLOS_DJ_PIN` | generated, saved in `dj_pin.txt` |
 | `MIRLOS_MAX_DURATION` | `600` s |
